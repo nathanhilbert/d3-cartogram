@@ -136,6 +136,184 @@
         document.getElementsByTagName("form")[0].style.display = "none";
       }
 
+
+      var map = d3.select("#map"),
+      //declare the zoom
+          //zoom = d3.behavior.zoom()
+          //  .translate([0, 0])
+          //  .scale(.94)
+          //  .scaleExtent([0.5, 10.0])
+            //.on("zoom", updateZoom),
+          layer = map.append("g")
+            .attr("id", "layer"),
+          counties = layer.append("g")
+            .attr("id", "counties")
+            .selectAll("path");
+var width = 960,
+    height = 500;
+
+
+      var proj = d3.geo.albersUsa().scale(5000)
+            .translate([width / 2 + 400, height / 2 + 100]),
+          topology,
+          geometries,
+          rawData,
+          dataById = {},
+          carto = d3.cartogram()
+            .projection(proj)
+            .value(function(d) {
+              console.log("value");
+              console.log(dataById[d.id]);
+              return dataById[d.id];
+              //return +d.properties["prop1"];
+            })
+            .properties(function(d) {
+              return dataById[d.id];
+            });
+
+    colors = colorbrewer.RdYlBu[3]
+            .reverse()
+            .map(function(rgb) { return d3.hsl(rgb); });
+
+
+
+
+
+      d3.json("data/CO_counties.topojson", function(topo) {
+        // load in the topo data
+        topology = topo;
+        geometries = topology.objects.CO_Countries.geometries;
+
+
+        // load the csv here
+
+        d3.csv("data/testdata.csv", function(data) {
+          rawData = data;
+          dataById = d3.nest()
+            .key(function(d) { return d['NAME_2']; })
+            // apply function to aggreagte
+            .rollup(function(d, i) { return +d[0]['prop1']; })
+            // map in the data
+            .map(data);
+
+          // call init on the program
+          init();
+        });
+      });
+
+
+      var scale;
+      function update() {
+        var start = Date.now();
+
+        value = function(d) {
+            //console.log(dataById[d.id]);
+              return +dataById[d.id];
+              //return +d.properties["prop_1"];
+            },
+            values = counties.data()
+              .map(value)
+              .filter(function(n) {
+                return !isNaN(n);
+              })
+              .sort(d3.ascending),
+            lo = values[0],
+            hi = values[values.length - 1];
+        var color = d3.scale.linear()
+          .range(colors)
+          .domain(lo < 0
+            ? [lo, 0, hi]
+            : [lo, d3.mean(values), hi]);
+
+        // normalize the scale to positive numbers
+        scale = d3.scale.linear()
+          .domain([0, hi])
+          .range([1, 10]);
+
+        // tell the cartogram to use the scaled values
+
+        carto.value(function(d) {
+          //return scale(value(d));
+          var theval = value(d);
+          if (! theval ){
+            theval = 1;
+          }
+          return scale(theval);
+        });
+
+
+        // generate the new features, pre-projected
+        var features = carto(topology, geometries).features;
+
+        //bind the new features to data
+       //counties.data(features);
+
+        // update the data
+
+        counties.data(features)
+          .select("title")
+            .text(function(d) {
+              if (dataById[d.id]){
+                return d.id;
+              }
+              else{
+                return "";
+              }
+            });
+
+
+        counties.transition()
+          .duration(10000)
+          .ease("linear")
+          .attr("fill", function(d) {
+            return color(value(d));
+          })
+        .attr("d", carto.path);
+
+          
+
+      }
+
+      function init() {
+        // get features from the topology and geometies that were declared on data load
+
+        var features = carto.features(topology, geometries),
+            path = d3.geo.path()
+              .projection(proj);
+
+        counties = counties.data(features)
+        // same as foreach
+          .enter()
+          .append("path")
+            .attr("class", "county")
+            .attr("id", function(d) {
+              return d.id;
+            })
+            .attr("fill", "grey")
+            .attr("d", path);
+        counties.append("title");
+        update();
+        
+
+
+      }
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
+
+
+
       // field definitions from:
       // <http://www.census.gov/popest/data/national/totals/2011/files/NST-EST2011-alldata.pdf>
       var percent = (function() {
@@ -163,9 +341,12 @@
             {name: "Net Migration Rate", id: "netmigrate", key: "RNETMIG%d", years: [2011], format: percent},
           ],
           years = [2010, 2011],
+          //.nest  will take a variable and its values and aggregate them together
           fieldsById = d3.nest()
             .key(function(d) { return d.id; })
+            // does an aggregate count of the nested
             .rollup(function(d) { return d[0]; })
+            // map the data to the data structure above
             .map(fields),
           field = fields[0],
           year = years[0],
@@ -181,6 +362,7 @@
           field = fields[this.selectedIndex];
           location.hash = "#" + [field.id, year].join("/");
         });
+
 
       fieldSelect.selectAll("option")
         .data(fields)
@@ -224,60 +406,20 @@
           "scale(" + [scale, scale] + ")");
       }
 
-      var proj = d3.geo.albersUsa(),
-          topology,
-          geometries,
-          rawData,
-          dataById = {},
-          carto = d3.cartogram()
-            .projection(proj)
-            .properties(function(d) {
-              return dataById[d.id];
-            })
-            .value(function(d) {
-              return +d.properties[field];
-            });
+
 
       window.onhashchange = function() {
         parseHash();
       };
 
+
+      //loadin our csv data here
+
       var segmentized = location.search === "?segmentized",
           url = ["data",
             segmentized ? "us-states-segmentized.topojson" : "us-states.topojson"
           ].join("/");
-      d3.json(url, function(topo) {
-        topology = topo;
-        geometries = topology.objects.states.geometries;
-        d3.csv("data/nst_2011.csv", function(data) {
-          rawData = data;
-          dataById = d3.nest()
-            .key(function(d) { return d.NAME; })
-            .rollup(function(d) { return d[0]; })
-            .map(data);
-          init();
-        });
-      });
 
-      function init() {
-        var features = carto.features(topology, geometries),
-            path = d3.geo.path()
-              .projection(proj);
-
-        states = states.data(features)
-          .enter()
-          .append("path")
-            .attr("class", "state")
-            .attr("id", function(d) {
-              return d.properties.NAME;
-            })
-            .attr("fill", "#fafafa")
-            .attr("d", path);
-
-        states.append("title");
-
-        parseHash();
-      }
 
       function reset() {
         stat.text("");
@@ -359,65 +501,8 @@
         body.classed("updating", false);
       }
 
-      var deferredUpdate = (function() {
-        var timeout;
-        return function() {
-          var args = arguments;
-          clearTimeout(timeout);
-          stat.text("calculating...");
-          return timeout = setTimeout(function() {
-            update.apply(null, arguments);
-          }, 10);
-        };
-      })();
 
-      var hashish = d3.selectAll("a.hashish")
-        .datum(function() {
-          return this.href;
-        });
-
-      function parseHash() {
-        var parts = location.hash.substr(1).split("/"),
-            desiredFieldId = parts[0],
-            desiredYear = +parts[1];
-
-        field = fieldsById[desiredFieldId] || fields[0];
-        year = (years.indexOf(desiredYear) > -1) ? desiredYear : years[0];
-
-        fieldSelect.property("selectedIndex", fields.indexOf(field));
-
-        if (field.id === "none") {
-
-          yearSelect.attr("disabled", "disabled");
-          reset();
-
-        } else {
-
-          if (field.years) {
-            if (field.years.indexOf(year) === -1) {
-              year = field.years[0];
-            }
-            yearSelect.selectAll("option")
-              .attr("disabled", function(y) {
-                return (field.years.indexOf(y) === -1) ? "disabled" : null;
-              });
-          } else {
-            yearSelect.selectAll("option")
-              .attr("disabled", null);
-          }
-
-          yearSelect
-            .property("selectedIndex", years.indexOf(year))
-            .attr("disabled", null);
-
-          deferredUpdate();
-          location.replace("#" + [field.id, year].join("/"));
-
-          hashish.attr("href", function(href) {
-            return href + location.hash;
-          });
-        }
-      }
+      */
 
     </script>
   </body>
